@@ -7,7 +7,7 @@
 ;; URL: https://github.com/fstilman/openclaw-sessions
 ;; Version: 0.2.0
 ;; Package-Requires: ((emacs "27.1"))
-;; Keywords: tools, processes
+;; Keywords: tools, processes, terminals
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;; Assisted-by: Codex:GPT-5
 

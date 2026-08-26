@@ -5,6 +5,13 @@ sessions. It launches sessions in a configurable Emacs terminal, reads lifecycle
 `openclaw sessions --json`, sends completion notifications, and keeps a compact
 summary in the mode line.
 
+## Demo
+
+Create named sessions directly from the dashboard, monitor their lifecycle,
+and see which completed sessions still need review:
+
+![Creating and monitoring OpenClaw sessions from Emacs](docs/demo.gif)
+
 ## Installation
 
 Once the package is available from MELPA:

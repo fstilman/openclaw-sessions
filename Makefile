@@ -1,4 +1,6 @@
 EMACS ?= emacs
+ELFILES = openclaw-sessions.el openclaw-sessions-context.el \
+	openclaw-sessions-org.el openclaw-sessions-mu4e.el
 
 .PHONY: test compile checkdoc package-lint clean
 
@@ -8,11 +10,12 @@ test:
 	  -f ert-run-tests-batch-and-exit
 
 compile:
-	$(EMACS) -Q --batch -L . -f batch-byte-compile openclaw-sessions.el
+	$(EMACS) -Q --batch -L . -f batch-byte-compile $(ELFILES)
 
 checkdoc:
 	$(EMACS) -Q --batch -L . \
-	  --eval '(progn (require (quote checkdoc)) (checkdoc-file "openclaw-sessions.el"))'
+	  --eval '(progn (require (quote checkdoc)) (mapc (function checkdoc-file) command-line-args-left))' \
+	  $(ELFILES)
 
 package-lint:
 	$(EMACS) -Q --batch -L . \

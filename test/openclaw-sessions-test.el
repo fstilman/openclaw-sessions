@@ -2,7 +2,14 @@
 
 (require 'ert)
 (require 'openclaw-sessions)
+(require 'openclaw-sessions-context)
+(require 'openclaw-sessions-org)
+(require 'openclaw-sessions-mu4e)
 (require 'term)
+
+;; Never consult the user's persistent registry in the test process.
+(setq openclaw-sessions-context--registry nil
+      openclaw-sessions-context--registry-loaded-p t)
 
 ;; Launcher tests replace the vterm entry points without loading its module.
 (provide 'vterm)
@@ -317,6 +324,206 @@
                    "agent:work:my-topic")))
       (when (buffer-live-p created-buffer)
         (kill-buffer created-buffer)))))
+
+(ert-deftest openclaw-sessions-test-initial-message-is-passed-as-argv ()
+  (let ((openclaw-sessions-default-agent nil)
+        (openclaw-sessions-launch-directory "/tmp/")
+        (openclaw-sessions-terminal-backend 'eat)
+        received
+        created-buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'openclaw-sessions--executable)
+                   (lambda () "/usr/bin/openclaw"))
+                  ((symbol-function 'openclaw-sessions-monitor-mode)
+                   (lambda (&optional _)))
+                  ((symbol-function 'eat-make)
+                   (lambda (_name _executable _startfile &rest arguments)
+                     (setq received arguments
+                           created-buffer
+                           (generate-new-buffer " *oc-message*"))
+                     created-buffer))
+                  ((symbol-function 'eat-char-mode) #'ignore)
+                  ((symbol-function 'pop-to-buffer) #'ignore))
+          (openclaw-sessions-start "mail-task" nil "Inspect this email")
+          (should (equal received
+                         '("tui" "--session" "mail-task"
+                           "--message" "Inspect this email"))))
+      (when (buffer-live-p created-buffer)
+        (kill-buffer created-buffer)))))
+
+(ert-deftest openclaw-sessions-test-context-name-is-stable-and-bounded ()
+  (let* ((openclaw-sessions-context-name-max-length 32)
+         (context (openclaw-sessions-context-create
+                   :title "A very long heading with punctuation!"
+                   :source-id "org:stable-id"))
+         (first (openclaw-sessions-context-default-name context)))
+    (should (equal first (openclaw-sessions-context-default-name context)))
+    (should (<= (length first) 32))
+    (should (string-match-p
+             "\\`a-very-long-heading-wit-[0-9a-f]\\{8\\}\\'" first))))
+
+(ert-deftest openclaw-sessions-test-region-provider-precedes-buffer ()
+  (with-temp-buffer
+    (insert "before selected text after")
+    (goto-char 8)
+    (push-mark 21 t t)
+    (let ((transient-mark-mode t)
+          (context (openclaw-sessions-context-at-point)))
+      (should (eq (openclaw-sessions-context-type context) 'buffer))
+      (should (string-match-p "selected text"
+                              (openclaw-sessions-context-message context))))))
+
+(ert-deftest openclaw-sessions-test-org-heading-context ()
+  (with-temp-buffer
+    (org-mode)
+    (setq buffer-file-name "/tmp/work.org")
+    (insert "* Project\n** TODO Fix refunds :finance:\n:PROPERTIES:\n:ID: task-42\n:EFFORT: 2:00\n:END:\nCheck duplicate charges.\n")
+    (goto-char (point-min))
+    (search-forward "Fix refunds")
+    (let ((context (openclaw-sessions-org-context)))
+      (should (equal (openclaw-sessions-context-title context)
+                     "Fix refunds"))
+      (should (equal (openclaw-sessions-context-type context) 'org))
+      (should (string-match-p "TODO state: TODO"
+                              (openclaw-sessions-context-message context)))
+      (should (string-match-p "Check duplicate charges"
+                              (openclaw-sessions-context-message context)))
+      (should (equal (plist-get
+                      (openclaw-sessions-context-location context)
+                      :outline-path)
+                     '("Project" "Fix refunds"))))))
+
+(ert-deftest openclaw-sessions-test-mu4e-message-context ()
+  (let ((major-mode 'mu4e-view-mode)
+        (message
+         '(:subject "Production error"
+           :message-id "message@example.test"
+           :from ((:name "Alice" :email "alice@example.test"))
+           :to ((:email "ops@example.test"))
+           :date (0 0 0 0)
+           :body-txt "Please investigate.\n> quoted history\n-- \nSignature"
+           :attachments ((:name "error.log"))
+           :path "/tmp/mail/message")))
+    (cl-letf (((symbol-function 'mu4e-message-at-point)
+               (lambda (&optional _) message))
+              ((symbol-function 'mu4e-message-field)
+               (lambda (msg field) (plist-get msg field))))
+      (provide 'mu4e-message)
+      (let ((context (openclaw-sessions-mu4e-context)))
+        (should (equal (openclaw-sessions-context-title context)
+                       "Production error"))
+        (should (eq (openclaw-sessions-context-type context) 'mu4e))
+        (should (string-match-p "Alice <alice@example.test>"
+                                (openclaw-sessions-context-message context)))
+        (should (string-match-p "Attachments: error.log"
+                                (openclaw-sessions-context-message context)))
+        (should-not (string-match-p "quoted history"
+                                    (openclaw-sessions-context-message
+                                     context)))))))
+
+(ert-deftest openclaw-sessions-test-context-registry-persists-association ()
+  (let* ((registry-file (make-temp-file "openclaw-context-registry-"))
+         (openclaw-sessions-context-registry-file registry-file)
+         (openclaw-sessions-context--registry nil)
+         (openclaw-sessions-context--registry-loaded-p t)
+         (context (openclaw-sessions-context-create
+                   :title "Task"
+                   :source-id "org:task"
+                   :source-label "Org: Task"
+                   :type 'org
+                   :location '(:file "/tmp/work.org" :position 1)))
+         buffer)
+    (unwind-protect
+        (progn
+          (setq buffer (generate-new-buffer " *oc-registry*"))
+          (with-current-buffer buffer
+            (setq-local openclaw-sessions--session-key "agent:main:task"))
+          (openclaw-sessions-context--record context "task" "main" buffer)
+          (should (member "agent:main:task"
+                          (openclaw-sessions-context-session-keys)))
+          (should (equal
+                   (openclaw-sessions-context-source-label-for-key
+                    "agent:main:task")
+                   "Org: Task"))
+          (should (> (nth 7 (file-attributes registry-file)) 0)))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (when (file-exists-p registry-file) (delete-file registry-file)))))
+
+(ert-deftest openclaw-sessions-test-existing-context-does-not-resend-message ()
+  (let* ((context (openclaw-sessions-context-create
+                   :title "Task" :source-id "org:task"
+                   :source-label "Org: Task" :message "Initial"))
+         (openclaw-sessions-context--registry
+          '((:source-id "org:task" :session-name "task" :agent "main")))
+         (openclaw-sessions-context--registry-loaded-p t)
+         received)
+    (cl-letf (((symbol-function 'openclaw-sessions-context-at-point)
+               (lambda () context))
+              ((symbol-function 'openclaw-sessions-start)
+               (lambda (&rest arguments) (setq received arguments)))
+              ((symbol-function 'openclaw-sessions-context--record) #'ignore))
+      (openclaw-sessions-start-at-point)
+      (should (equal received '("task" "main"))))))
+
+(ert-deftest openclaw-sessions-test-new-context-launches-and-registers ()
+  (let* ((registry-file (make-temp-file "openclaw-context-new-"))
+         (openclaw-sessions-context-registry-file registry-file)
+         (openclaw-sessions-context--registry nil)
+         (openclaw-sessions-context--registry-loaded-p t)
+         (openclaw-sessions-context-confirm-before-send 'never)
+         (openclaw-sessions-default-agent "main")
+         (context (openclaw-sessions-context-create
+                   :title "Fix task" :source-id "org:new-task"
+                   :source-label "Org: Fix task" :message "Initial context"
+                   :directory "/tmp/" :type 'org
+                   :location '(:file "/tmp/work.org" :position 1)))
+         received
+         buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'openclaw-sessions-context-at-point)
+                   (lambda () context))
+                  ((symbol-function 'openclaw-sessions-start)
+                   (lambda (&rest arguments)
+                     (setq received arguments
+                           buffer (generate-new-buffer " *oc-new-context*"))
+                     (with-current-buffer buffer
+                       (setq-local openclaw-sessions--session-key
+                                   "agent:main:fix-task"))
+                     buffer)))
+          (openclaw-sessions-start-at-point)
+          (should (equal (cdr received) '("main" "Initial context")))
+          (should (equal
+                   (openclaw-sessions-context-source-label-for-key
+                    "agent:main:fix-task")
+                   "Org: Fix task")))
+      (when (buffer-live-p buffer) (kill-buffer buffer))
+      (when (file-exists-p registry-file) (delete-file registry-file)))))
+
+(ert-deftest openclaw-sessions-test-dashboard-shows-context-source ()
+  (let ((openclaw-sessions-context--registry
+         '((:source-id "org:task" :session-key "agent:main:task"
+            :source-label "Org: Fix task")))
+        (openclaw-sessions-context--registry-loaded-p t))
+    (let* ((row (openclaw-sessions--session-row
+                 '((key . "agent:main:task") (status . "running"))))
+           (cells (cadr row)))
+      (should (equal (aref cells 8) "Org: Fix task")))))
+
+(ert-deftest openclaw-sessions-test-forget-context-keeps-session-separate ()
+  (let* ((registry-file (make-temp-file "openclaw-context-forget-"))
+         (openclaw-sessions-context-registry-file registry-file)
+         (openclaw-sessions-context--registry
+          '((:source-id "org:task" :session-key "agent:main:task")))
+         (openclaw-sessions-context--registry-loaded-p t)
+         updated)
+    (unwind-protect
+        (cl-letf (((symbol-function 'openclaw-sessions--update-dashboard)
+                   (lambda () (setq updated t)))
+                  ((symbol-function 'message) #'ignore))
+          (openclaw-sessions-forget-context "agent:main:task")
+          (should updated)
+          (should-not openclaw-sessions-context--registry))
+      (when (file-exists-p registry-file) (delete-file registry-file)))))
 
 (provide 'openclaw-sessions-test)
 

@@ -1,9 +1,11 @@
 # openclaw-sessions
 
 An Emacs dashboard for named [OpenClaw](https://docs.openclaw.ai/) TUI
-sessions. It launches sessions in a configurable Emacs terminal, reads lifecycle state from
-`openclaw sessions --json`, sends completion notifications, and keeps a compact
-summary in the mode line.
+sessions. It can turn the Org heading, mu4e message, region, or buffer at point
+into a session with useful initial context. It launches sessions in a
+configurable Emacs terminal, reads lifecycle state from `openclaw sessions
+--json`, sends completion notifications, and keeps a compact summary in the
+mode line.
 
 ## Demo
 
@@ -19,9 +21,11 @@ Once the package is available from MELPA:
 ```elisp
 (use-package openclaw-sessions
   :ensure t
-  :commands (openclaw-sessions openclaw-sessions-start)
+  :commands (openclaw-sessions openclaw-sessions-start
+             openclaw-sessions-start-at-point)
   :bind (("C-c o s" . openclaw-sessions)
-         ("C-c o n" . openclaw-sessions-start)))
+         ("C-c o n" . openclaw-sessions-start)
+         ("C-c o ." . openclaw-sessions-start-at-point)))
 ```
 
 To install directly from the source repository, clone it and add the package
@@ -34,9 +38,11 @@ git clone https://github.com/fstilman/openclaw-sessions.git
 ```elisp
 (use-package openclaw-sessions
   :load-path "~/dev/emacs-packages/openclaw-sessions"
-  :commands (openclaw-sessions openclaw-sessions-start)
+  :commands (openclaw-sessions openclaw-sessions-start
+             openclaw-sessions-start-at-point)
   :bind (("C-c o s" . openclaw-sessions)
-         ("C-c o n" . openclaw-sessions-start)))
+         ("C-c o n" . openclaw-sessions-start)
+         ("C-c o ." . openclaw-sessions-start-at-point)))
 ```
 
 The package requires Emacs 27.1 or newer and the `openclaw` executable. VTerm
@@ -46,8 +52,14 @@ and Eat are optional; the built-in Term backend requires no extra package.
 
 - `M-x openclaw-sessions-start` asks only for a session name and opens
   `openclaw tui --session NAME` in a dedicated terminal buffer.
+- `M-x openclaw-sessions-start-at-point` creates or revisits a session for the
+  semantic object at point and sends its context as the initial message.
 - `M-x openclaw-sessions` opens the dashboard.
 - `RET` visits or attaches to the selected session.
+- `o` visits the Org heading, email, file, or buffer that created the selected
+  contextual session.
+- `D` forgets the selected source association without deleting its OpenClaw
+  session; invoking the point command again will create a fresh association.
 - `m` marks its latest completion as reviewed.
 - `u` marks it as unreviewed again.
 - `n` starts a session.
@@ -61,6 +73,73 @@ Use a prefix argument with `openclaw-sessions-start` to select an agent
 explicitly. The prompt provides standard completion over the agents returned
 by `openclaw agents list --json`, while still accepting a new agent ID. The
 resulting target is `agent:AGENT:NAME`.
+
+## Context-aware sessions
+
+`openclaw-sessions-start-at-point` tries these providers in order:
+
+1. An active region.
+2. The current Org heading.
+3. The mu4e message selected in headers or open in the message view.
+4. A fallback around point in the current file or buffer.
+
+The generated session name combines a readable slug with a short hash of the
+source identity. Repeating the command on the same source reopens its session
+without sending the initial message again. Associations are saved in
+`openclaw-sessions-context-registry-file`; this also keeps contextual sessions
+in the `managed` dashboard scope across Emacs restarts.
+
+Use `C-u M-x openclaw-sessions-start-at-point` to edit the generated session
+name, agent, and initial message. Customize
+`openclaw-sessions-context-functions` to reorder providers or add one: each
+function takes no arguments and returns an `openclaw-sessions-context` object,
+or nil when it does not apply.
+
+### Org
+
+The Org provider uses an existing `ID` or `CUSTOM_ID` when available, but does
+not create properties or otherwise modify the Org file. Without one, identity
+comes from the file and outline path. The initial message includes the clean
+heading title, TODO state, scheduling metadata, selected properties, and either
+the heading or its whole subtree:
+
+```elisp
+(setq openclaw-sessions-org-context-scope 'subtree)
+(setq openclaw-sessions-org-properties
+      '("ID" "CUSTOM_ID" "EFFORT" "ASSIGNED_TO"))
+```
+
+Changing a heading's outline path changes its fallback identity. Add an Org
+`ID` when a durable association matters.
+
+### mu4e
+
+The mu4e provider includes message headers, plain text, and attachment names;
+it never includes attachment contents automatically. Quoted lines and
+signatures are removed by default. Email text is delimited as untrusted source
+material, and the default send policy asks for confirmation before sending it
+to OpenClaw.
+
+```elisp
+(setq openclaw-sessions-mu4e-identity 'message) ; or 'thread
+(setq openclaw-sessions-mu4e-strip-quoted-text t)
+(setq openclaw-sessions-context-confirm-before-send 'email)
+```
+
+The `thread` identity uses mu4e's thread path when available, allowing related
+messages to share one session.
+
+### Context limits and privacy
+
+Extracted source text is limited to 12,000 characters by default:
+
+```elisp
+(setq openclaw-sessions-context-max-characters 12000)
+```
+
+Initial context is passed to `openclaw tui --message`, so it is sent as soon as
+the TUI connects. Set `openclaw-sessions-context-confirm-before-send` to
+`always`, `email`, or `never` according to the desired confirmation policy.
 
 ## Working-directory semantics
 

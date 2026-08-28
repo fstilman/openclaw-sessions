@@ -5,7 +5,7 @@
 ;; Author: Federico Stilman <fstilman@gmail.com>
 ;; Maintainer: Federico Stilman <fstilman@gmail.com>
 ;; URL: https://github.com/fstilman/openclaw-sessions
-;; Version: 0.2.0
+;; Version: 0.3.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: tools, processes, terminals
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -46,6 +46,18 @@
 (declare-function term-char-mode "term")
 (declare-function term-mode "term")
 (declare-function vterm "vterm" (&optional buffer-name))
+(autoload 'openclaw-sessions-context-resolve-buffer
+  "openclaw-sessions-context")
+(autoload 'openclaw-sessions-context-session-keys
+  "openclaw-sessions-context")
+(autoload 'openclaw-sessions-context-source-label-for-key
+  "openclaw-sessions-context")
+(autoload 'openclaw-sessions-start-at-point
+  "openclaw-sessions-context" nil t)
+(autoload 'openclaw-sessions-visit-source
+  "openclaw-sessions-context" nil t)
+(autoload 'openclaw-sessions-forget-context
+  "openclaw-sessions-context" nil t)
 
 (defvar vterm-shell)
 
@@ -161,6 +173,8 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
 (defvar-local openclaw-sessions--session-agent nil)
 (defvar-local openclaw-sessions--session-key nil)
 (defvar-local openclaw-sessions--launched-at nil)
+(defvar-local openclaw-sessions--context-source-id nil)
+(defvar-local openclaw-sessions--context-source-label nil)
 
 (defvar openclaw-sessions--sessions nil)
 (defvar openclaw-sessions--refresh-process nil)
@@ -321,7 +335,9 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
         (when session
           (with-current-buffer buffer
             (setq openclaw-sessions--session-key
-                  (openclaw-sessions--session-key session))))))))
+                  (openclaw-sessions--session-key session))
+            (when (fboundp 'openclaw-sessions-context-resolve-buffer)
+              (openclaw-sessions-context-resolve-buffer buffer))))))))
 
 (defun openclaw-sessions--notify (session status)
   "Notify that SESSION reached terminal STATUS."
@@ -439,11 +455,15 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
 
 (defun openclaw-sessions--managed-session-keys ()
   "Return canonical keys for sessions managed by this package."
-  (delq nil
-        (mapcar
-         (lambda (buffer)
-           (buffer-local-value 'openclaw-sessions--session-key buffer))
-         (openclaw-sessions--managed-buffers))))
+  (delete-dups
+   (append
+    (delq nil
+          (mapcar
+           (lambda (buffer)
+             (buffer-local-value 'openclaw-sessions--session-key buffer))
+           (openclaw-sessions--managed-buffers)))
+    (when (fboundp 'openclaw-sessions-context-session-keys)
+      (openclaw-sessions-context-session-keys)))))
 
 (defun openclaw-sessions--sessions-for-scope (&optional scope)
   "Return cached sessions selected by SCOPE.
@@ -643,12 +663,14 @@ directory."
     buffer))
 
 ;;;###autoload
-(defun openclaw-sessions-start (session-name &optional agent)
+(defun openclaw-sessions-start (session-name &optional agent initial-message)
   "Start or visit an OpenClaw TUI for SESSION-NAME.
 
 AGENT defaults to `openclaw-sessions-default-agent'.  Interactively, a prefix
 argument prompts for an agent ID.  Without an explicit agent, OpenClaw retains
-its native selection rules, including inference from the launch directory."
+its native selection rules, including inference from the launch directory.
+When INITIAL-MESSAGE is non-nil, send it after the new TUI connects.  It is
+never sent when merely visiting an existing managed buffer."
   (interactive
    (list (read-string "OpenClaw session name: ")
          (when current-prefix-arg
@@ -669,7 +691,9 @@ its native selection rules, including inference from the launch directory."
            (target (if agent
                        (format "agent:%s:%s" agent session-name)
                      session-name))
-           (arguments (list "tui" "--session" target))
+           (arguments (append (list "tui" "--session" target)
+                              (when initial-message
+                                (list "--message" initial-message))))
            (terminal-name
             (openclaw-sessions--terminal-name session-name agent))
            (buffer (openclaw-sessions--launch-terminal
@@ -682,7 +706,8 @@ its native selection rules, including inference from the launch directory."
                     (and agent (downcase target))
                     openclaw-sessions--launched-at (float-time))
         (openclaw-sessions--prepare-managed-buffer))
-      (openclaw-sessions-monitor-mode 1))))
+      (openclaw-sessions-monitor-mode 1)
+      buffer)))
 
 (defun openclaw-sessions--format-age (session)
   "Format the age of SESSION's last update."
@@ -734,7 +759,10 @@ its native selection rules, including inference from the launch directory."
          (agent (or (car parts) (alist-get 'agentId session) "—"))
          (name (or (cadr parts) (alist-get 'label session) key "—"))
          (status (openclaw-sessions--session-status session))
-         (buffer (openclaw-sessions--buffer-for-key key)))
+         (buffer (openclaw-sessions--buffer-for-key key))
+         (source
+          (when (fboundp 'openclaw-sessions-context-source-label-for-key)
+            (openclaw-sessions-context-source-label-for-key key))))
     (list key
           (vector (openclaw-sessions--unseen-cell key)
                   (openclaw-sessions--status-cell status)
@@ -743,7 +771,8 @@ its native selection rules, including inference from the launch directory."
                   (openclaw-sessions--format-age session)
                   (or (alist-get 'model session) "—")
                   (openclaw-sessions--format-tokens session)
-                  (if buffer "yes" "")))))
+                  (if buffer "yes" "")
+                  (or source "")))))
 
 (defun openclaw-sessions--placeholder-row (buffer)
   "Build a placeholder row for unresolved managed BUFFER."
@@ -753,7 +782,10 @@ its native selection rules, including inference from the launch directory."
                 'openclaw-sessions--session-agent buffer)))
     (list (cons 'buffer buffer)
           (vector "" (openclaw-sessions--status-cell "unknown")
-                  name (or agent "auto") "—" "—" "—" "yes"))))
+                  name (or agent "auto") "—" "—" "—" "yes"
+                  (or (buffer-local-value
+                       'openclaw-sessions--context-source-label buffer)
+                      "")))))
 
 (defun openclaw-sessions--dashboard-entries ()
   "Return entries for `openclaw-sessions-dashboard-scope'."
@@ -859,6 +891,8 @@ Visiting a session marks its latest completion as reviewed."
     (define-key map (kbd "g") #'openclaw-sessions-refresh)
     (define-key map (kbd "s") #'openclaw-sessions-cycle-scope)
     (define-key map (kbd "t") #'openclaw-sessions-tail)
+    (define-key map (kbd "o") #'openclaw-sessions-visit-source)
+    (define-key map (kbd "D") #'openclaw-sessions-forget-context)
     (define-key map (kbd "q") #'quit-window)
     map)
   "Keymap for `openclaw-sessions-mode'.")
@@ -875,7 +909,8 @@ Visiting a session marks its latest completion as reviewed."
          ("Updated" 10 nil)
          ("Model" 18 t)
          ("Tokens" 18 nil)
-         ("Buffer" 7 nil)])
+         ("Buffer" 7 nil)
+         ("Source" 24 t)])
   (setq tabulated-list-padding 2
         tabulated-list-sort-key '("Status" . nil)
         tabulated-list-entries (openclaw-sessions--dashboard-entries)

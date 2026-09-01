@@ -231,14 +231,23 @@
 
 (ert-deftest openclaw-sessions-test-completion-notification-does-not-expire ()
   (require 'notifications)
-  (let (notification-arguments)
+  (let ((openclaw-sessions--notification-ids
+         (make-hash-table :test #'equal))
+        notification-arguments)
     (cl-letf (((symbol-function 'notifications-notify)
                (lambda (&rest arguments)
-                 (setq notification-arguments arguments))))
+                 (setq notification-arguments arguments)
+                 42)))
       (openclaw-sessions--notify
        '((key . "agent:main:test") (status . "done"))
        "done")
-      (should (equal (plist-get notification-arguments :timeout) 0)))))
+      (should (equal (plist-get notification-arguments :timeout) 0))
+      (should (equal (gethash "agent:main:test"
+                              openclaw-sessions--notification-ids)
+                     42))
+      (funcall (plist-get notification-arguments :on-close) 42 'dismissed)
+      (should-not (gethash "agent:main:test"
+                           openclaw-sessions--notification-ids)))))
 
 (ert-deftest openclaw-sessions-test-running-to-terminal-becomes-unreviewed ()
   (let ((openclaw-sessions--sessions
@@ -256,13 +265,23 @@
 
 (ert-deftest openclaw-sessions-test-review-state-can-be-changed-explicitly ()
   (let ((openclaw-sessions--unseen-completions
-         (make-hash-table :test #'equal)))
+         (make-hash-table :test #'equal))
+        (openclaw-sessions--notification-ids
+         (make-hash-table :test #'equal))
+        closed-id)
+    (require 'notifications)
     (cl-letf (((symbol-function 'openclaw-sessions--update-dashboard) #'ignore)
-              ((symbol-function 'force-mode-line-update) #'ignore))
+              ((symbol-function 'force-mode-line-update) #'ignore)
+              ((symbol-function 'notifications-close-notification)
+               (lambda (id &optional _bus) (setq closed-id id))))
       (openclaw-sessions--set-unseen "agent:main:test" t)
       (should (openclaw-sessions--unseen-p "agent:main:test"))
+      (puthash "agent:main:test" 42 openclaw-sessions--notification-ids)
       (openclaw-sessions--set-unseen "agent:main:test" nil)
-      (should-not (openclaw-sessions--unseen-p "agent:main:test")))))
+      (should-not (openclaw-sessions--unseen-p "agent:main:test"))
+      (should (equal closed-id 42))
+      (should-not (gethash "agent:main:test"
+                           openclaw-sessions--notification-ids)))))
 
 (ert-deftest openclaw-sessions-test-visiting-managed-buffer-reviews-completion ()
   (let ((openclaw-sessions--unseen-completions

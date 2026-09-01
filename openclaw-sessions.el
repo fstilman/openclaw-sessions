@@ -40,6 +40,7 @@
 (require 'tabulated-list)
 
 (declare-function notifications-notify "notifications" (&rest params))
+(declare-function notifications-close-notification "notifications" (id &optional bus))
 (declare-function eat-char-mode "eat")
 (declare-function eat-make "eat" (name program &optional startfile &rest switches))
 (declare-function make-term "term" (name program &optional startfile &rest switches))
@@ -182,6 +183,8 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
 (defvar openclaw-sessions--last-error nil)
 (defvar openclaw-sessions--statuses (make-hash-table :test #'equal))
 (defvar openclaw-sessions--unseen-completions
+  (make-hash-table :test #'equal))
+(defvar openclaw-sessions--notification-ids
   (make-hash-table :test #'equal))
 (defvar openclaw-sessions--agent-candidates nil)
 (defvar openclaw-sessions--agent-candidates-at nil)
@@ -345,11 +348,21 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
          (parts (openclaw-sessions--session-parts key))
          (name (or (cadr parts) key)))
     (if (require 'notifications nil t)
-        (notifications-notify
-         :title "OpenClaw session finished"
-         :body (format "%s: %s" name status)
-         :app-name "Emacs"
-         :timeout 0)
+        (progn
+          (openclaw-sessions--close-notification key)
+          (let ((id
+                 (notifications-notify
+                  :title "OpenClaw session finished"
+                  :body (format "%s: %s" name status)
+                  :app-name "Emacs"
+                  :timeout 0
+                  :on-close
+                  (lambda (id _reason)
+                    (when (equal id (gethash key
+                                             openclaw-sessions--notification-ids))
+                      (remhash key openclaw-sessions--notification-ids))))))
+            (when id
+              (puthash key id openclaw-sessions--notification-ids))))
       (message "OpenClaw session finished: %s (%s)" name status))))
 
 (defun openclaw-sessions--record-status-transitions ()
@@ -489,11 +502,19 @@ SCOPE defaults to `openclaw-sessions-dashboard-scope'."
   (and (stringp key)
        (gethash key openclaw-sessions--unseen-completions)))
 
+(defun openclaw-sessions--close-notification (key)
+  "Close and forget the completion notification for session KEY."
+  (when-let ((id (gethash key openclaw-sessions--notification-ids)))
+    (remhash key openclaw-sessions--notification-ids)
+    (when (require 'notifications nil t)
+      (notifications-close-notification id))))
+
 (defun openclaw-sessions--set-unseen (key unseen)
   "Set whether session KEY has an UNSEEN completion."
   (if unseen
       (puthash key t openclaw-sessions--unseen-completions)
-    (remhash key openclaw-sessions--unseen-completions))
+    (remhash key openclaw-sessions--unseen-completions)
+    (openclaw-sessions--close-notification key))
   (openclaw-sessions--update-dashboard)
   (force-mode-line-update t))
 

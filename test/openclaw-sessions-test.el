@@ -229,6 +229,17 @@
         (openclaw-sessions--record-status-transitions)
         (should notified)))))
 
+(ert-deftest openclaw-sessions-test-completion-notification-does-not-expire ()
+  (require 'notifications)
+  (let (notification-arguments)
+    (cl-letf (((symbol-function 'notifications-notify)
+               (lambda (&rest arguments)
+                 (setq notification-arguments arguments))))
+      (openclaw-sessions--notify
+       '((key . "agent:main:test") (status . "done"))
+       "done")
+      (should (equal (plist-get notification-arguments :timeout) 0)))))
+
 (ert-deftest openclaw-sessions-test-running-to-terminal-becomes-unreviewed ()
   (let ((openclaw-sessions--sessions
          '(((key . "agent:main:test") (status . "done"))))

@@ -348,7 +348,8 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
         (notifications-notify
          :title "OpenClaw session finished"
          :body (format "%s: %s" name status)
-         :app-name "Emacs")
+         :app-name "Emacs"
+         :timeout 0)
       (message "OpenClaw session finished: %s (%s)" name status))))
 
 (defun openclaw-sessions--record-status-transitions ()

@@ -495,6 +495,35 @@
       (openclaw-sessions-start-at-point)
       (should (equal received '("task" "main"))))))
 
+(ert-deftest openclaw-sessions-test-start-at-point-prefix-edits-only-message ()
+  (let* ((context (openclaw-sessions-context-create
+                   :title "Fix task" :source-id "org:prefix-task"
+                   :source-label "Org: Fix task" :message "Generated context"
+                   :agent "work"))
+         (openclaw-sessions-context--registry nil)
+         (openclaw-sessions-context--registry-loaded-p t)
+         (openclaw-sessions-context-confirm-before-send 'never)
+         prompt initial received)
+    (cl-letf (((symbol-function 'openclaw-sessions-context-at-point)
+               (lambda () context))
+              ((symbol-function 'read-string)
+               (lambda (&rest _) (ert-fail "Session name was prompted")))
+              ((symbol-function 'openclaw-sessions-read-agent)
+               (lambda (&rest _) (ert-fail "Agent was prompted")))
+              ((symbol-function 'read-from-minibuffer)
+               (lambda (text &optional value &rest _)
+                 (setq prompt text initial value)
+                 "Edited message"))
+              ((symbol-function 'openclaw-sessions-start)
+               (lambda (&rest arguments) (setq received arguments)))
+              ((symbol-function 'openclaw-sessions-context--record) #'ignore))
+      (openclaw-sessions-start-at-point '(4))
+      (should (equal prompt "Initial message: "))
+      (should (equal initial "Generated context"))
+      (should (equal received
+                     (list (openclaw-sessions-context-default-name context)
+                           "work" "Edited message"))))))
+
 (ert-deftest openclaw-sessions-test-new-context-launches-and-registers ()
   (let* ((registry-file (make-temp-file "openclaw-context-new-"))
          (openclaw-sessions-context-registry-file registry-file)

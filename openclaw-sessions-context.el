@@ -278,8 +278,8 @@ The value `email' confirms only mu4e contexts.  The values `always' and
 (defun openclaw-sessions-start-at-point (&optional edit)
   "Create or visit an OpenClaw session for the object at point.
 
-With prefix argument EDIT, prompt for the generated name, agent, and initial
-message before creating a new session."
+With prefix argument EDIT, prompt to edit the initial message before creating
+a new session.  The session name and agent are selected as usual."
   (interactive "P")
   (let* ((context (openclaw-sessions-context-at-point))
          (source-id (openclaw-sessions-context-source-id context))
@@ -292,15 +292,9 @@ message before creating a new session."
            context (plist-get existing :session-name)
            (plist-get existing :agent) buffer)
           buffer)
-      (let* ((generated (funcall openclaw-sessions-context-name-function
-                                 context))
-             (name (if edit
-                       (read-string "OpenClaw session name: " generated)
-                     generated))
-             (agent (if edit
-                        (openclaw-sessions-read-agent)
-                      (or (openclaw-sessions-context-agent context)
-                          openclaw-sessions-default-agent)))
+      (let* ((name (funcall openclaw-sessions-context-name-function context))
+             (agent (or (openclaw-sessions-context-agent context)
+                        openclaw-sessions-default-agent))
              (message-text
               (if edit
                   (read-from-minibuffer

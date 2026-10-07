@@ -89,8 +89,8 @@ without sending the initial message again. Associations are saved in
 `openclaw-sessions-context-registry-file`; this also keeps contextual sessions
 in the `managed` dashboard scope across Emacs restarts.
 
-Use `C-u M-x openclaw-sessions-start-at-point` to edit the generated session
-name, agent, and initial message. Customize
+Use `C-u M-x openclaw-sessions-start-at-point` to edit only the initial message;
+the session name and agent are selected automatically. Customize
 `openclaw-sessions-context-functions` to reorder providers or add one: each
 function takes no arguments and returns an `openclaw-sessions-context` object,
 or nil when it does not apply.

@@ -31,9 +31,8 @@
       (should (= (length sessions) 1))
       (should (equal (alist-get 'status (car sessions)) "done")))))
 
-(ert-deftest openclaw-sessions-test-refresh-requests-all-recent-sessions ()
+(ert-deftest openclaw-sessions-test-refresh-requests-all-sessions ()
   (let ((openclaw-sessions--refresh-process nil)
-        (openclaw-sessions-active-minutes 1440)
         (openclaw-sessions-all-agents t)
         command buffer)
     (unwind-protect
@@ -47,7 +46,7 @@
           (openclaw-sessions-refresh)
           (should (equal command
                          '("/usr/bin/openclaw" "sessions" "--json"
-                           "--active" "1440" "--limit" "all"
+                           "--limit" "all"
                            "--all-agents"))))
       (when (buffer-live-p buffer)
         (kill-buffer buffer)))))

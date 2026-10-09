@@ -93,10 +93,6 @@ Set this to nil to disable automatic refreshes."
   :type '(choice (const :tag "Manual refresh only" nil)
                  (number :tag "Seconds")))
 
-(defcustom openclaw-sessions-active-minutes 1440
-  "Only request sessions active within this many minutes."
-  :type 'integer)
-
 (defcustom openclaw-sessions-all-agents t
   "When non-nil, request sessions belonging to every configured agent."
   :type 'boolean)
@@ -109,7 +105,7 @@ Set this to nil to disable automatic refreshes."
   "Sessions shown in the dashboard and summarized in the mode line.
 
 `managed' shows sessions launched or attached by this package.
-`direct' shows every recent direct session.  `all' includes channel,
+`direct' shows every direct session.  `all' includes channel,
 cron, and other session kinds."
   :type '(choice (const managed) (const direct) (const all)))
 
@@ -428,11 +424,7 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
                 (format "Executable not found: %s"
                         openclaw-sessions-executable))
         (let ((arguments
-               (append (list "sessions" "--json"
-                             "--active"
-                             (number-to-string
-                              openclaw-sessions-active-minutes)
-                             "--limit" "all")
+               (append (list "sessions" "--json" "--limit" "all")
                        (when openclaw-sessions-all-agents
                          '("--all-agents"))))
               (buffer (generate-new-buffer " *openclaw-sessions-json*")))

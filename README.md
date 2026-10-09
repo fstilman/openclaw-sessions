@@ -207,8 +207,9 @@ seconds because starting the OpenClaw CLI has non-trivial overhead. Customize
 `openclaw-sessions-refresh-interval`, or set it to nil for manual refresh only.
 
 The default dashboard scope includes only sessions launched or attached by the
-package. Press `s` to inspect other OpenClaw sessions. All scopes include every
-session returned by OpenClaw, without age or result-count limits.
+package. Press `s` to inspect other recent OpenClaw sessions.
+All scopes include every session returned by OpenClaw within the configured
+`openclaw-sessions-active-minutes` window; there is no result-count limit.
 
 When a direct session changes from `RUNNING` to a terminal status, the
 dashboard shows `●` in its **New** column. The marker means that the completion

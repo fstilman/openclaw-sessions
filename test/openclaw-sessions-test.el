@@ -31,6 +31,27 @@
       (should (= (length sessions) 1))
       (should (equal (alist-get 'status (car sessions)) "done")))))
 
+(ert-deftest openclaw-sessions-test-refresh-requests-all-recent-sessions ()
+  (let ((openclaw-sessions--refresh-process nil)
+        (openclaw-sessions-active-minutes 1440)
+        (openclaw-sessions-all-agents t)
+        command buffer)
+    (unwind-protect
+        (cl-letf (((symbol-function 'openclaw-sessions--executable)
+                   (lambda () "/usr/bin/openclaw"))
+                  ((symbol-function 'make-process)
+                   (lambda (&rest arguments)
+                     (setq command (plist-get arguments :command)
+                           buffer (plist-get arguments :buffer))
+                     nil)))
+          (openclaw-sessions-refresh)
+          (should (equal command
+                         '("/usr/bin/openclaw" "sessions" "--json"
+                           "--active" "1440" "--limit" "all"
+                           "--all-agents"))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
+
 (ert-deftest openclaw-sessions-test-format-age ()
   (should (equal (openclaw-sessions--format-age '((ageMs . 12000))) "12s"))
   (should (equal (openclaw-sessions--format-age '((ageMs . 120000))) "2m"))

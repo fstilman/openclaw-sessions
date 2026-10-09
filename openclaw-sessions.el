@@ -97,10 +97,6 @@ Set this to nil to disable automatic refreshes."
   "Only request sessions active within this many minutes."
   :type 'integer)
 
-(defcustom openclaw-sessions-limit 100
-  "Maximum number of sessions requested from OpenClaw."
-  :type 'integer)
-
 (defcustom openclaw-sessions-all-agents t
   "When non-nil, request sessions belonging to every configured agent."
   :type 'boolean)
@@ -436,8 +432,7 @@ OpenClaw uses its native selection rules, including CWD-based agent inference."
                              "--active"
                              (number-to-string
                               openclaw-sessions-active-minutes)
-                             "--limit"
-                             (number-to-string openclaw-sessions-limit))
+                             "--limit" "all")
                        (when openclaw-sessions-all-agents
                          '("--all-agents"))))
               (buffer (generate-new-buffer " *openclaw-sessions-json*")))
